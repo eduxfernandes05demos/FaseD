@@ -1,0 +1,263 @@
+name: Package Spec2Cloud Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Validate structure
+        run: |
+          echo "Validating spec2cloud structure..."
+          
+          # Check required directories
+          required_dirs=(".github/agents" ".github/prompts")
+          for dir in "${required_dirs[@]}"; do
+            if [ ! -d "$dir" ]; then
+              echo "Error: Required directory $dir not found"
+              exit 1
+            fi
+          done
+          
+          # Count agents and prompts
+          agent_count=$(find .github/agents -name "*.agent.md" | wc -l)
+          prompt_count=$(find .github/prompts -name "*.prompt.md" | wc -l)
+          
+          echo "Found $agent_count agents"
+          echo "Found $prompt_count prompts"
+          
+          if [ $agent_count -eq 0 ] || [ $prompt_count -eq 0 ]; then
+            echo "Error: No agents or prompts found"
+            exit 1
+          fi
+          
+          echo "✅ Structure validation passed"
+      
+      - name: Create package directories
+        run: |
+          mkdir -p release-full
+          mkdir -p release-minimal
+          mkdir -p checksums
+      
+      - name: Build full package
+        run: |
+          echo "Building full spec2cloud package..."
+          
+          # Copy agents and prompts
+          mkdir -p release-full/.github/agents
+          mkdir -p release-full/.github/prompts
+          cp -r .github/agents/*.agent.md release-full/.github/agents/
+          cp -r .github/prompts/*.prompt.md release-full/.github/prompts/
+          
+          # Copy VS Code configuration
+          if [ -f ".vscode/mcp.json" ]; then
+            mkdir -p release-full/.vscode
+            cp .vscode/mcp.json release-full/.vscode/
+          fi
+          
+          # Copy devcontainer (optional)
+          if [ -d ".devcontainer" ]; then
+            mkdir -p release-full/.devcontainer
+            cp .devcontainer/devcontainer.json release-full/.devcontainer/
+          fi
+          
+          # Copy templates
+          mkdir -p release-full/templates/specs/{features,tasks,docs}
+          cp templates/apm.yml.template release-full/templates/
+          touch release-full/templates/specs/.gitkeep
+          touch release-full/templates/specs/features/.gitkeep
+          touch release-full/templates/specs/tasks/.gitkeep
+          touch release-full/templates/specs/docs/.gitkeep
+          
+          # Copy installation scripts
+          mkdir -p release-full/scripts
+          cp scripts/install.sh release-full/scripts/
+          cp scripts/install.ps1 release-full/scripts/
+          chmod +x release-full/scripts/install.sh
+          
+          # Copy documentation
+          cp templates/RELEASE_README.md release-full/README.md
+          cp INTEGRATION.md release-full/
+          cp LICENSE.md release-full/
+          
+          echo "✅ Full package built"
+      
+      - name: Build minimal package
+        run: |
+          echo "Building minimal spec2cloud package..."
+          
+          # Copy only agents and prompts
+          mkdir -p release-minimal/.github/agents
+          mkdir -p release-minimal/.github/prompts
+          cp -r .github/agents/*.agent.md release-minimal/.github/agents/
+          cp -r .github/prompts/*.prompt.md release-minimal/.github/prompts/
+          
+          # Create minimal README
+          cat > release-minimal/README.md << 'EOF'
+          # Spec2Cloud - Minimal Installation
+          
+          This package contains only the GitHub Copilot agents and prompts.
+          
+          ## Quick Install
+          
+          Copy the `.github` folder to your project root:
+          
+          ```bash
+          cp -r .github /path/to/your/project/
+          ```
+          
+          ## Usage
+          
+          Open your project in VS Code with GitHub Copilot Chat and use the workflows:
+          
+          - `/prd` - Create Product Requirements Document
+          - `/frd` - Create Feature Requirements Documents
+          - `/plan` - Create Technical Task Breakdown
+          - `/implement` - Implement features locally
+          - `/delegate` - Delegate to GitHub Copilot Coding Agent
+          - `/deploy` - Deploy to Azure
+          - `/rev-eng` - Reverse engineer existing codebase
+          - `/modernize` - Create modernization plan
+          
+          For full installation with dev container, MCP servers, and APM, download the full package.
+          
+          ## Learn More
+          
+          https://github.com/EmeaAppGbb/spec2cloud
+          EOF
+          
+          cp LICENSE.md release-minimal/
+          
+          echo "✅ Minimal package built"
+      
+      - name: Create ZIP archives
+        run: |
+          cd release-full
+          zip -r ../spec2cloud-full-${{ steps.version.outputs.VERSION }}.zip .
+          cd ..
+          
+          cd release-minimal
+          zip -r ../spec2cloud-minimal-${{ steps.version.outputs.VERSION }}.zip .
+          cd ..
+          
+          echo "✅ ZIP archives created"
+      
+      - name: Generate checksums
+        run: |
+          sha256sum spec2cloud-full-${{ steps.version.outputs.VERSION }}.zip > checksums/spec2cloud-full-${{ steps.version.outputs.VERSION }}.sha256
+          sha256sum spec2cloud-minimal-${{ steps.version.outputs.VERSION }}.zip > checksums/spec2cloud-minimal-${{ steps.version.outputs.VERSION }}.sha256
+          
+          # Create combined checksums file
+          cat checksums/*.sha256 > CHECKSUMS.txt
+          
+          echo "✅ Checksums generated"
+          cat CHECKSUMS.txt
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: Spec2Cloud ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## 🚀 Spec2Cloud Release ${{ steps.version.outputs.VERSION }}
+            
+            Transform any project into a spec2cloud-enabled development environment with AI-powered workflows.
+            
+            ### 📦 Installation Options
+            
+            **Full Installation** (Recommended)
+            Includes agents, prompts, devcontainer, MCP servers, and installation scripts:
+            ```bash
+            curl -L https://github.com/EmeaAppGbb/spec2cloud/releases/download/${{ steps.version.outputs.VERSION }}/spec2cloud-full-${{ steps.version.outputs.VERSION }}.zip -o spec2cloud.zip
+            unzip spec2cloud.zip -d spec2cloud
+            cd spec2cloud
+            ./scripts/install.sh --full
+            ```
+            
+            **Minimal Installation**
+            Includes only agents and prompts:
+            ```bash
+            curl -L https://github.com/EmeaAppGbb/spec2cloud/releases/download/${{ steps.version.outputs.VERSION }}/spec2cloud-minimal-${{ steps.version.outputs.VERSION }}.zip -o spec2cloud-minimal.zip
+            unzip spec2cloud-minimal.zip -d spec2cloud-minimal
+            cp -r spec2cloud-minimal/.github /path/to/your/project/
+            ```
+            
+            **Quick Install** (One-liner)
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/EmeaAppGbb/spec2cloud/main/scripts/quick-install.sh | bash
+            ```
+            
+            ### 📋 What's Included
+            
+            **Full Package**:
+            - ✅ 10 specialized AI agents (Spec2Cloud, PM, Dev Lead, Dev, Azure, Tech Analyst, Modernizer, Extender, Planner, Architect)
+            - ✅ 12 workflow prompts
+            - ✅ MCP server configuration
+            - ✅ Dev container setup
+            - ✅ Installation scripts (Linux/Mac/Windows)
+            - ✅ APM template
+            - ✅ Documentation
+            
+            **Minimal Package**:
+            - ✅ 10 specialized AI agents
+            - ✅ 12 workflow prompts
+            
+            ### 🔐 Verification
+            
+            Verify package integrity using SHA256 checksums:
+            ```bash
+            sha256sum -c CHECKSUMS.txt
+            ```
+            
+            ### 📖 Documentation
+            
+            - [Integration Guide](https://github.com/EmeaAppGbb/spec2cloud/blob/main/INTEGRATION.md)
+            - [Full Documentation](https://github.com/EmeaAppGbb/spec2cloud)
+            - [Workflow Guide](https://github.com/EmeaAppGbb/spec2cloud/blob/main/SPEC2CLOUD.md)
+            
+            ### 🆕 What's New
+            
+            See the [CHANGELOG](https://github.com/EmeaAppGbb/spec2cloud/blob/main/CHANGELOG.md) for details.
+          files: |
+            spec2cloud-full-${{ steps.version.outputs.VERSION }}.zip
+            spec2cloud-minimal-${{ steps.version.outputs.VERSION }}.zip
+            CHECKSUMS.txt
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Update latest tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f latest
+          git push -f origin latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
