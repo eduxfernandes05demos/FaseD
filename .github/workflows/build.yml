@@ -1,0 +1,68 @@
+name: Build Quake Worker
+
+on:
+  push:
+    branches: [ main, "copilot/**" ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            gcc \
+            cppcheck
+
+      - name: Configure (headless + NOASM)
+        run: |
+          cmake -B build \
+            -DHEADLESS=ON \
+            -DNOASM=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS="-DNOASM=1"
+        working-directory: WinQuake
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+        working-directory: WinQuake
+
+      - name: Verify binary exists
+        run: |
+          test -f WinQuake/build/quake-worker
+          echo "✅ quake-worker binary built successfully"
+
+      - name: Run cppcheck (static analysis)
+        run: |
+          cppcheck \
+            --error-exitcode=0 \
+            --suppress=missingIncludeSystem \
+            --suppress=unusedFunction \
+            --suppress=unreadVariable \
+            --suppress=variableScope \
+            --suppress=knownConditionTrueFalse \
+            --quiet \
+            --std=c99 \
+            -I WinQuake \
+            WinQuake/sys_container.c \
+            WinQuake/vid_headless.c \
+            WinQuake/snd_capture.c \
+            WinQuake/in_inject.c \
+            || true
+          echo "✅ Static analysis complete"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: quake-worker-linux
+          path: WinQuake/build/quake-worker
+          retention-days: 7
