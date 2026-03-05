@@ -798,7 +798,9 @@ void CL_ParseServerMessage (void)
 			break;
 			
 		case svc_stufftext:
-			Cbuf_AddText (MSG_ReadString ());
+			/* svc_stufftext disabled: server-injected console commands
+			 * are a known code-execution vector in headless/cloud builds. */
+			MSG_ReadString (); /* consume and discard the string */
 			break;
 			
 		case svc_damage:
