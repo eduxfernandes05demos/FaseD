@@ -107,6 +107,7 @@ if(HEADLESS)
         snd_capture.c
         snd_dma.c
         in_inject.c
+        net_frame_server.c
         sys_container.c
         cd_null.c
     )

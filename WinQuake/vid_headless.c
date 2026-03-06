@@ -12,6 +12,10 @@ Build this file when HEADLESS=1 is defined (cmake -DHEADLESS=ON).
 
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
+
+/* Mutex shared with net_frame_server.c to protect framebuffer access */
+pthread_mutex_t frame_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* -----------------------------------------------------------------------
  * Resolution (can be overridden by env var QUAKE_WIDTH / QUAKE_HEIGHT)
@@ -52,8 +56,11 @@ int VID_CaptureFrame (byte **rgba, int *width, int *height)
 	byte *src;
 	byte *dst;
 
+	pthread_mutex_lock(&frame_mutex);
+
 	if (!vid_buffer || !rgba_buffer)
 	{
+		pthread_mutex_unlock(&frame_mutex);
 		*rgba   = NULL;
 		*width  = 0;
 		*height = 0;
@@ -79,6 +86,7 @@ int VID_CaptureFrame (byte **rgba, int *width, int *height)
 	*width  = vid_width;
 	*height = vid_height;
 	frame_captured = 0;
+	pthread_mutex_unlock(&frame_mutex);
 	return 1;
 }
 
@@ -166,7 +174,9 @@ void VID_Shutdown (void)
 void VID_Update (vrect_t *rects)
 {
 	/* Mark that a new frame is ready for capture. */
+	pthread_mutex_lock(&frame_mutex);
 	frame_captured = 1;
+	pthread_mutex_unlock(&frame_mutex);
 }
 
 void D_BeginDirectRect (int x, int y, byte *pbitmap, int width, int height)

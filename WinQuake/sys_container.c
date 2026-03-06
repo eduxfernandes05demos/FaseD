@@ -35,6 +35,9 @@ Key differences from the desktop sys_linux.c:
 
 #include "quakedef.h"
 
+extern void FrameServer_Init (void);
+extern void FrameServer_Shutdown (void);
+
 /* -----------------------------------------------------------------------
  * Global state
  * --------------------------------------------------------------------- */
@@ -345,6 +348,9 @@ int main (int c, char **v)
 	/* Start health endpoint before engine init so probes succeed earlier */
 	pthread_create(&health_tid, NULL, healthz_thread, NULL);
 
+	/* Start frame server for streaming gateway IPC */
+	FrameServer_Init();
+
 	json_log("info", "Host_Init starting");
 	Host_Init(&parms);
 	json_log("info", "Host_Init complete");
@@ -371,6 +377,7 @@ int main (int c, char **v)
 
 	engine_running = 0;
 	json_log("info", "SIGTERM received – shutting down");
+	FrameServer_Shutdown();
 	Host_Shutdown();
 
 	pthread_join(health_tid, NULL);
