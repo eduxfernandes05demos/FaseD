@@ -84,3 +84,40 @@ Ten specialized agents in `.github/agents/`:
 - **Instructions**: Creates feature specs in `specs/features/`, designs integration strategies, preserves existing stability
 
 Back to [docs index](index.md).
+
+## Cloud Infrastructure
+
+The platform deploys on **Azure Container Apps** using the sidecar pattern:
+
+```
+┌───────────────────────────────────────────────────────┐
+│  Container App: ca-quake-streaming-{env}              │
+│  Ingress: external, port 8090 (streaming-gateway)     │
+│                                                       │
+│  ┌─────────────────────┐  ┌────────────────────────┐  │
+│  │  streaming-gateway   │  │  game-worker (sidecar) │  │
+│  │  0.5 CPU / 1 Gi     │  │  1.0 CPU / 2 Gi        │  │
+│  │  :8090 (HTTP/WSS)   │  │  :8080 (healthz)       │  │
+│  │  Main container      │←→│  :9000 (frame server)  │  │
+│  └─────────────────────┘  └────────────────────────┘  │
+│         ↑ localhost:9000 (IPC)                        │
+└───────────────────────────────────────────────────────┘
+         ↕ HTTPS + WSS (external ingress)
+    ┌──────────┐
+    │  Browser  │
+    └──────────┘
+```
+
+Both containers share `localhost` in the same network namespace. The streaming gateway connects to the game worker's TCP frame server on `localhost:9000` for zero-overhead IPC.
+
+### Bicep Modules
+
+| Module | Purpose |
+|---|---|
+| `infra/modules/quake-streaming.bicep` | Combined Container App (gateway + game worker sidecar) |
+| `infra/modules/acr.bicep` | Azure Container Registry |
+| `infra/modules/container-apps-env.bicep` | Container Apps Environment |
+| `infra/modules/storage.bicep` | Azure Files for game assets |
+| `infra/modules/key-vault.bicep` | Azure Key Vault |
+| `infra/modules/app-insights.bicep` | Application Insights |
+| `infra/modules/log-analytics.bicep` | Log Analytics Workspace |

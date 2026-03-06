@@ -32,8 +32,12 @@ Key differences from the desktop sys_linux.c:
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <time.h>
+#include <execinfo.h>
 
 #include "quakedef.h"
+
+extern void FrameServer_Init (void);
+extern void FrameServer_Shutdown (void);
 
 /* -----------------------------------------------------------------------
  * Global state
@@ -71,6 +75,17 @@ static void json_log (const char *level, const char *msg)
 /* -----------------------------------------------------------------------
  * Signal handlers
  * --------------------------------------------------------------------- */
+static void handle_sigsegv (int sig)
+{
+	void *bt[32];
+	int n;
+	(void)sig;
+	n = backtrace(bt, 32);
+	fprintf(stderr, "SIGSEGV caught, backtrace:\n");
+	backtrace_symbols_fd(bt, n, STDERR_FILENO);
+	_exit(139);
+}
+
 static void handle_sigterm (int sig)
 {
 	(void)sig;
@@ -315,6 +330,7 @@ int main (int c, char **v)
 	signal(SIGINT,  handle_sigterm);
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGFPE,  SIG_IGN);
+	signal(SIGSEGV, handle_sigsegv);
 
 	/* Read configuration from environment */
 	basedir_env = getenv("QUAKE_BASEDIR");
@@ -345,6 +361,9 @@ int main (int c, char **v)
 	/* Start health endpoint before engine init so probes succeed earlier */
 	pthread_create(&health_tid, NULL, healthz_thread, NULL);
 
+	/* Start frame server for streaming gateway IPC */
+	FrameServer_Init();
+
 	json_log("info", "Host_Init starting");
 	Host_Init(&parms);
 	json_log("info", "Host_Init complete");
@@ -371,6 +390,7 @@ int main (int c, char **v)
 
 	engine_running = 0;
 	json_log("info", "SIGTERM received – shutting down");
+	FrameServer_Shutdown();
 	Host_Shutdown();
 
 	pthread_join(health_tid, NULL);
