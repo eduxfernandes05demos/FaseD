@@ -184,57 +184,61 @@ const clientHTML = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <title>Quake Cloud</title>
   <style>
-    body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    body { margin: 0; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; font-family: monospace; }
     canvas { border: 2px solid #555; }
+    #status { color: #0f0; font-size: 18px; margin-bottom: 20px; text-shadow: 0 0 10px #0f0; }
+    #info { color: #888; font-size: 12px; margin-top: 10px; }
   </style>
 </head>
 <body>
+  <div id="status">Connecting...</div>
   <canvas id="gameCanvas" width="640" height="480"></canvas>
+  <div id="info"></div>
   <script>
-    const ws = new WebSocket('ws://' + location.host + '/signal');
-    const pc = new RTCPeerConnection();
+    const status = document.getElementById('status');
+    const info = document.getElementById('info');
     const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
 
-    ws.onmessage = async (event) => {
+    // Draw placeholder screen
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, 640, 480);
+    ctx.fillStyle = '#e94560';
+    ctx.font = 'bold 36px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('QUAKE CLOUD', 320, 200);
+    ctx.fillStyle = '#0f0';
+    ctx.font = '16px monospace';
+    ctx.fillText('Game worker is running', 320, 260);
+    ctx.fillStyle = '#888';
+    ctx.font = '14px monospace';
+    ctx.fillText('WebRTC streaming coming soon', 320, 300);
+
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(wsProto + '//' + location.host + '/signal');
+
+    ws.onopen = () => {
+      status.textContent = 'Connected to gateway';
+      status.style.color = '#0f0';
+    };
+
+    ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === 'config') {
-        // Configure STUN and start the WebRTC offer
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        ws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));
-      } else if (msg.type === 'answer') {
-        await pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp });
-      } else if (msg.type === 'ice') {
-        await pc.addIceCandidate(msg.candidate);
+        status.textContent = 'Gateway connected — Game worker: ' + msg.workerAddr;
+        info.textContent = 'STUN: ' + msg.stun + ' | WebRTC peer connection pending server-side implementation';
       }
     };
 
-    pc.onicecandidate = (e) => {
-      if (e.candidate) ws.send(JSON.stringify({ type: 'ice', candidate: e.candidate }));
+    ws.onerror = () => {
+      status.textContent = 'Connection error';
+      status.style.color = '#e94560';
     };
 
-    pc.ontrack = (e) => {
-      // Attach video/audio tracks
-      if (e.track.kind === 'video') {
-        const video = document.createElement('video');
-        video.srcObject = e.streams[0];
-        video.autoplay = true;
-        video.style.display = 'none';
-        document.body.appendChild(video);
-      }
+    ws.onclose = () => {
+      status.textContent = 'Disconnected';
+      status.style.color = '#ff0';
     };
-
-    // Forward keyboard events via data channel
-    const dc = pc.createDataChannel('input');
-    document.addEventListener('keydown', (e) => {
-      if (dc.readyState === 'open') dc.send(JSON.stringify({ type: 'key', key: e.key, down: true }));
-    });
-    document.addEventListener('keyup', (e) => {
-      if (dc.readyState === 'open') dc.send(JSON.stringify({ type: 'key', key: e.key, down: false }));
-    });
-    canvas.addEventListener('mousemove', (e) => {
-      if (dc.readyState === 'open') dc.send(JSON.stringify({ type: 'mouse', dx: e.movementX, dy: e.movementY }));
-    });
   </script>
 </body>
 </html>`

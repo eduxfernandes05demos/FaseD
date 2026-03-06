@@ -21,6 +21,11 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-01-01' = {
     allowSharedKeyAccess:   false   // Managed identity only — no storage keys
     minimumTlsVersion:      'TLS1_2'
     supportsHttpsTrafficOnly: true
+    publicNetworkAccess:    'Enabled'  // Required for CLI uploads and Container Apps without VNet
+    networkAcls: {
+      defaultAction: 'Allow'           // Container Apps needs access; tighten with VNet integration
+      bypass:        'AzureServices'
+    }
   }
 }
 
