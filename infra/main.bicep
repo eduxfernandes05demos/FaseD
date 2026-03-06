@@ -31,6 +31,9 @@ param prefix string = 'quake'
 @description('Container image tag to deploy to the game-worker.')
 param gameWorkerImageTag string = 'latest'
 
+@description('Container image tag to deploy to the streaming-gateway.')
+param streamingGatewayImageTag string = 'latest'
+
 @description('Quake start map (e.g. e1m1).')
 param quakeMap string = 'e1m1'
 
@@ -157,16 +160,17 @@ resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-module gameWorker 'modules/game-worker.bicep' = {
-  name: 'game-worker'
+module quakeStreaming 'modules/quake-streaming.bicep' = {
+  name: 'quake-streaming'
   dependsOn: [blobReaderRole, acrPullRole]
   params: {
-    name:                         'ca-game-worker-${environment}'
+    name:                         'ca-quake-streaming-${environment}'
     location:                     location
     environment:                  environment
     containerAppsEnvId:           containerAppsEnv.outputs.id
     acrLoginServer:               acr.outputs.loginServer
-    imageTag:                     gameWorkerImageTag
+    gameWorkerImageTag:           gameWorkerImageTag
+    streamingGatewayImageTag:     streamingGatewayImageTag
     quakeMap:                     quakeMap
     quakeSkill:                   string(quakeSkill)
     appInsightsKey:               appInsights.outputs.instrumentationKey
@@ -182,6 +186,6 @@ module gameWorker 'modules/game-worker.bicep' = {
 
 output acrLoginServer     string = acr.outputs.loginServer
 output containerAppsEnvId string = containerAppsEnv.outputs.id
-output gameWorkerFqdn     string = gameWorker.outputs.fqdn
+output quakeStreamingFqdn    string = quakeStreaming.outputs.fqdn
 output storageAccountName string = storage.outputs.name
 output keyVaultUri        string = keyVault.outputs.uri

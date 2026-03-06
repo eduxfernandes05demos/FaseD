@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "890853479733205391"
+      "templateHash": "3662632114215336008"
     }
   },
   "parameters": {
@@ -476,7 +476,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "17986098365163170752"
+              "templateHash": "12248755213413775108"
             }
           },
           "parameters": {
@@ -509,7 +509,12 @@
                 "allowBlobPublicAccess": false,
                 "allowSharedKeyAccess": false,
                 "minimumTlsVersion": "TLS1_2",
-                "supportsHttpsTrafficOnly": true
+                "supportsHttpsTrafficOnly": true,
+                "publicNetworkAccess": "Enabled",
+                "networkAcls": {
+                  "defaultAction": "Allow",
+                  "bypass": "AzureServices"
+                }
               }
             },
             {
@@ -690,7 +695,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "1203673028474366778"
+              "templateHash": "6724531042990064167"
             }
           },
           "parameters": {
@@ -762,7 +767,6 @@
                   "registries": "[if(variables('isPlaceholder'), createArray(), createArray(createObject('server', parameters('acrLoginServer'), 'identity', parameters('userAssignedIdentityId'))))]"
                 },
                 "template": {
-                  "initContainers": "[if(variables('isPlaceholder'), createArray(), createArray(createObject('name', 'download-gamedata', 'image', 'mcr.microsoft.com/azure-cli:latest', 'command', createArray('/bin/sh', '-c', format('az login --identity --username {0} && az storage blob download-batch --source gamedata --destination /game/id1 --account-name {1} --auth-mode login', parameters('userAssignedIdentityClientId'), parameters('storageAccountName'))), 'resources', createObject('cpu', json('0.25'), 'memory', '0.5Gi'), 'volumeMounts', createArray(createObject('volumeName', 'gamedata', 'mountPath', '/game/id1')))))]",
                   "containers": [
                     {
                       "name": "game-worker",
@@ -799,13 +803,19 @@
                         {
                           "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
                           "value": "[format('InstrumentationKey={0}', parameters('appInsightsKey'))]"
+                        },
+                        {
+                          "name": "STORAGE_ACCOUNT_NAME",
+                          "value": "[parameters('storageAccountName')]"
+                        },
+                        {
+                          "name": "AZURE_CLIENT_ID",
+                          "value": "[parameters('userAssignedIdentityClientId')]"
                         }
                       ],
-                      "volumeMounts": "[if(variables('isPlaceholder'), createArray(), createArray(createObject('volumeName', 'gamedata', 'mountPath', '/game/id1')))]",
                       "probes": "[if(variables('isPlaceholder'), createArray(), createArray(createObject('type', 'Liveness', 'httpGet', createObject('path', '/healthz', 'port', 8080, 'scheme', 'HTTP'), 'initialDelaySeconds', 30, 'periodSeconds', 10, 'failureThreshold', 3), createObject('type', 'Readiness', 'httpGet', createObject('path', '/healthz', 'port', 8080, 'scheme', 'HTTP'), 'initialDelaySeconds', 15, 'periodSeconds', 5, 'failureThreshold', 3)))]"
                     }
                   ],
-                  "volumes": "[if(variables('isPlaceholder'), createArray(), createArray(createObject('name', 'gamedata', 'storageType', 'EmptyDir')))]",
                   "scale": {
                     "minReplicas": 0,
                     "maxReplicas": "[if(equals(parameters('environment'), 'prod'), 10, 2)]",
