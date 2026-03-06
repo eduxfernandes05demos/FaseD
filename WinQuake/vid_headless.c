@@ -31,7 +31,9 @@ static byte	*vid_buffer   = NULL;
 static short	*zbuffer_mem  = NULL;
 static byte	*surfcache_mem = NULL;
 
-#define SURFCACHE_SIZE (512 * 1024)
+/* D_SurfaceCacheForRes computes the correct size at runtime.
+ * We keep this as a minimum fallback only. */
+#define SURFCACHE_SIZE_MIN (512 * 1024)
 
 /* RGBA capture buffer (exported) */
 static byte	*rgba_buffer   = NULL;
@@ -117,6 +119,7 @@ void VID_Init (unsigned char *palette)
 	const char *env_w, *env_h;
 	int w = DEFAULT_WIDTH;
 	int h = DEFAULT_HEIGHT;
+	int surfcache_size;
 
 	env_w = getenv("QUAKE_WIDTH");
 	env_h = getenv("QUAKE_HEIGHT");
@@ -128,9 +131,16 @@ void VID_Init (unsigned char *palette)
 	vid_width  = w;
 	vid_height = h;
 
+	{
+		int sc_size = D_SurfaceCacheForRes(w, h);
+		if (sc_size < SURFCACHE_SIZE_MIN)
+			sc_size = SURFCACHE_SIZE_MIN;
+		surfcache_size = sc_size;
+	}
+
 	vid_buffer    = (byte *)malloc(w * h);
 	zbuffer_mem   = (short *)malloc(w * h * sizeof(short));
-	surfcache_mem = (byte *)malloc(SURFCACHE_SIZE);
+	surfcache_mem = (byte *)malloc(surfcache_size);
 	rgba_buffer   = (byte *)malloc(w * h * 4);
 
 	if (!vid_buffer || !zbuffer_mem || !surfcache_mem || !rgba_buffer)
@@ -138,7 +148,7 @@ void VID_Init (unsigned char *palette)
 
 	memset(vid_buffer,    0, w * h);
 	memset(zbuffer_mem,   0, w * h * sizeof(short));
-	memset(surfcache_mem, 0, SURFCACHE_SIZE);
+	memset(surfcache_mem, 0, surfcache_size);
 	memset(rgba_buffer,   0, w * h * 4);
 
 	vid.maxwarpwidth  = vid.width    = vid.conwidth  = w;
@@ -151,7 +161,7 @@ void VID_Init (unsigned char *palette)
 	vid.rowbytes      = vid.conrowbytes = w;
 
 	d_pzbuffer = zbuffer_mem;
-	D_InitCaches(surfcache_mem, SURFCACHE_SIZE);
+	D_InitCaches(surfcache_mem, surfcache_size);
 
 	VID_SetPalette(palette);
 

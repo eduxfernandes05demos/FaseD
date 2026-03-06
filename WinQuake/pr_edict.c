@@ -33,6 +33,49 @@ int				pr_edict_size;	// in bytes
 
 unsigned short		pr_crc;
 
+/* -----------------------------------------------------------------------
+ * Engine string table (64-bit safe)
+ *
+ * On 64-bit systems, computing (char_ptr - pr_strings) for strings that
+ * live outside the progs string table (e.g. model names in static arrays)
+ * produces values that overflow a 32-bit string_t.
+ *
+ * Solution: engine strings get negative string_t offsets. The table maps
+ * index i to a C pointer, and PR_SetEngineString returns -(i+1).
+ * PR_GetString decodes: positive offset → pr_strings + offset,
+ * negative → table lookup.
+ * --------------------------------------------------------------------- */
+#define MAX_ENGINE_STRINGS 4096
+static const char *engine_string_table[MAX_ENGINE_STRINGS];
+static int num_engine_strings = 0;
+
+const char *PR_GetString (int num)
+{
+	if (num >= 0)
+		return pr_strings + num;
+	num = -1 - num;
+	if (num < num_engine_strings)
+		return engine_string_table[num];
+	return "";
+}
+
+int PR_SetEngineString (const char *s)
+{
+	int i;
+	if (!s)
+		return 0;
+	if (s >= pr_strings && s < pr_strings + progs->numstrings)
+		return (int)(s - pr_strings);
+	for (i = 0; i < num_engine_strings; i++)
+		if (engine_string_table[i] == s)
+			return -(i + 1);
+	if (num_engine_strings >= MAX_ENGINE_STRINGS)
+		Sys_Error ("PR_SetEngineString: overflow");
+	engine_string_table[num_engine_strings] = s;
+	num_engine_strings++;
+	return -num_engine_strings;  /* -(index+1) */
+}
+
 int		type_size[8] = {1,sizeof(string_t)/4,1,3,1,1,sizeof(func_t)/4,sizeof(void *)/4};
 
 ddef_t *ED_FieldAtOfs (int ofs);
@@ -288,7 +331,7 @@ char *PR_ValueString (etype_t type, eval_t *val)
 	switch (type)
 	{
 	case ev_string:
-		sprintf (line, "%s", pr_strings + val->string);
+		sprintf (line, "%s", PR_GetString(val->string));
 		break;
 	case ev_entity:	
 		sprintf (line, "entity %i", NUM_FOR_EDICT(PROG_TO_EDICT(val->edict)) );
@@ -340,7 +383,7 @@ char *PR_UglyValueString (etype_t type, eval_t *val)
 	switch (type)
 	{
 	case ev_string:
-		sprintf (line, "%s", pr_strings + val->string);
+		sprintf (line, "%s", PR_GetString(val->string));
 		break;
 	case ev_entity:	
 		sprintf (line, "%i", NUM_FOR_EDICT(PROG_TO_EDICT(val->edict)));
@@ -739,7 +782,7 @@ qboolean	ED_ParseEpair (void *base, ddef_t *key, char *s)
 	switch (key->type & ~DEF_SAVEGLOBAL)
 	{
 	case ev_string:
-		*(string_t *)d = ED_NewString (s) - pr_strings;
+		*(string_t *)d = PR_SetEngineString(ED_NewString (s));
 		break;
 		
 	case ev_float:
@@ -959,7 +1002,7 @@ void ED_LoadFromFile (char *data)
 		}
 
 	// look for the spawn function
-		func = ED_FindFunction ( pr_strings + ent->v.classname );
+		func = ED_FindFunction ( PR_GetString(ent->v.classname) );
 
 		if (!func)
 		{
@@ -991,6 +1034,8 @@ void PR_LoadProgs (void)
 		gefvCache[i].field[0] = 0;
 
 	CRC_Init (&pr_crc);
+
+	num_engine_strings = 0;
 
 	progs = (dprograms_t *)COM_LoadHunkFile ("progs.dat");
 	if (!progs)

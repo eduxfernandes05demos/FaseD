@@ -137,21 +137,21 @@ static int handle_frame_request (int client_fd, jpeg_buf_t *jbuf)
 	int   w = 0, h = 0;
 	int   header[3]; /* width, height, jpeg_len (LE) */
 
-	/* Capture the frame under lock */
-	pthread_mutex_lock(&frame_mutex);
+	/* VID_CaptureFrame handles its own mutex locking.
+	 * It copies vid_buffer → rgba_buffer under the lock and returns
+	 * a pointer to rgba_buffer, which is only written by this function
+	 * (single-client, synchronous), so no lock needed for JPEG encoding. */
 	VID_CaptureFrame(&rgba, &w, &h);
 	if (!rgba || w == 0 || h == 0)
 	{
-		pthread_mutex_unlock(&frame_mutex);
 		/* Send a zero-size frame */
 		memset(header, 0, sizeof(header));
 		return send_all(client_fd, header, sizeof(header));
 	}
 
-	/* Encode to JPEG */
+	/* Encode to JPEG (no lock needed — rgba_buffer is frame-server-private) */
 	jbuf->size = 0;
 	stbi_write_jpg_to_func(jpeg_write_func, jbuf, w, h, 4, rgba, 70);
-	pthread_mutex_unlock(&frame_mutex);
 
 	if (jbuf->size == 0)
 	{

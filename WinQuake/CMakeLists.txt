@@ -23,6 +23,8 @@ add_compile_options(
     -Wno-unused-result
     -fno-strict-aliasing
     -fcommon
+    -g
+    -rdynamic
 )
 
 # -------------------------------------------------------------------------
@@ -144,6 +146,7 @@ else()
     # Container build needs pthreads for the health endpoint thread
     find_package(Threads REQUIRED)
     target_link_libraries(${TARGET_NAME} Threads::Threads)
+    target_link_options(${TARGET_NAME} PRIVATE -rdynamic)
 endif()
 
 # -------------------------------------------------------------------------
