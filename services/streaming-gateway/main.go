@@ -71,7 +71,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // ---------------------------------------------------------------------------
-// workerClient speaks the binary IPC protocol to net_frame_server.c
+// workerClient — speaks the binary IPC protocol to net_frame_server.c
 // ---------------------------------------------------------------------------
 
 type workerClient struct {
@@ -86,6 +86,7 @@ func dialWorker() (*workerClient, error) {
 	for i := 0; i < 20; i++ {
 		conn, err = net.DialTimeout("tcp", workerAddr, 2*time.Second)
 		if err == nil {
+			// Set TCP_NODELAY for low latency
 			if tc, ok := conn.(*net.TCPConn); ok {
 				tc.SetNoDelay(true)
 			}
@@ -105,6 +106,7 @@ func (w *workerClient) Close() {
 	}
 }
 
+// GetFrame sends 'F' and reads [width:4][height:4][jpeg_len:4][jpeg_data].
 func (w *workerClient) GetFrame() ([]byte, int, int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -126,6 +128,7 @@ func (w *workerClient) GetFrame() ([]byte, int, int, error) {
 		return nil, width, height, nil
 	}
 
+	// Sanity check: JPEG shouldn't exceed 2 MB for 640x480
 	if jpegLen > 2*1024*1024 {
 		return nil, 0, 0, fmt.Errorf("jpeg size %d exceeds limit", jpegLen)
 	}
@@ -138,6 +141,7 @@ func (w *workerClient) GetFrame() ([]byte, int, int, error) {
 	return jpeg, width, height, nil
 }
 
+// InjectKey sends 'K' + [key:4][down:1] and reads [ok:1].
 func (w *workerClient) InjectKey(key int32, down bool) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -157,6 +161,7 @@ func (w *workerClient) InjectKey(key int32, down bool) error {
 	return err
 }
 
+// InjectMouse sends 'M' + [dx:4][dy:4][buttons:4] and reads [ok:1].
 func (w *workerClient) InjectMouse(dx, dy, buttons int32) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -194,12 +199,14 @@ func newSession(conn *websocket.Conn, worker *workerClient) *Session {
 	}
 }
 
+// sendBinary sends a binary WebSocket message (JPEG frame).
 func (s *Session) sendBinary(data []byte) error {
 	s.wsMu.Lock()
 	defer s.wsMu.Unlock()
 	return s.conn.WriteMessage(websocket.BinaryMessage, data)
 }
 
+// sendJSON sends a JSON text WebSocket message.
 func (s *Session) sendJSON(msg interface{}) error {
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -210,6 +217,7 @@ func (s *Session) sendJSON(msg interface{}) error {
 	return s.conn.WriteMessage(websocket.TextMessage, data)
 }
 
+// frameRelay reads frames from the worker and pushes them to the browser.
 func (s *Session) frameRelay() {
 	interval := time.Duration(1000/targetFPS) * time.Millisecond
 	ticker := time.NewTicker(interval)
@@ -226,7 +234,7 @@ func (s *Session) frameRelay() {
 				return
 			}
 			if jpeg == nil {
-				continue
+				continue // no frame available yet
 			}
 			if err := s.sendBinary(jpeg); err != nil {
 				log.Printf("frame relay: ws write error: %v", err)
@@ -237,7 +245,7 @@ func (s *Session) frameRelay() {
 }
 
 // ---------------------------------------------------------------------------
-// Streaming handler
+// Signaling / streaming handler
 // ---------------------------------------------------------------------------
 
 type inputMsg struct {
@@ -260,6 +268,7 @@ func streamHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("new session from %s", r.RemoteAddr)
 
+	// Connect to game worker
 	worker, err := dialWorker()
 	if err != nil {
 		log.Printf("worker connect failed: %v", err)
@@ -269,6 +278,7 @@ func streamHandler(w http.ResponseWriter, r *http.Request) {
 
 	sess := newSession(conn, worker)
 
+	// Notify browser that streaming is ready
 	if err := sess.sendJSON(map[string]interface{}{
 		"type":   "ready",
 		"width":  640,
@@ -279,8 +289,10 @@ func streamHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Start pushing frames
 	go sess.frameRelay()
 
+	// Read input messages from browser
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
@@ -358,8 +370,10 @@ const clientHTML = `<!DOCTYPE html>
     const statusEl = document.getElementById('status');
     const clickMsg = document.getElementById('click-msg');
 
+    // FPS tracking
     let frameCount = 0, lastFpsTime = performance.now(), fps = 0;
 
+    // Quake key mapping (browser e.code → Quake K_* constants from keys.h)
     const KEY_MAP = {
       'Backquote':96,'Digit1':49,'Digit2':50,'Digit3':51,'Digit4':52,'Digit5':53,
       'Digit6':54,'Digit7':55,'Digit8':56,'Digit9':57,'Digit0':48,
@@ -390,6 +404,7 @@ const clientHTML = `<!DOCTYPE html>
       clickMsg.style.display = document.pointerLockElement ? 'none' : 'block';
     });
 
+    // WebSocket
     const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(wsProto + '//' + location.host + '/stream');
     ws.binaryType = 'arraybuffer';
@@ -400,6 +415,7 @@ const clientHTML = `<!DOCTYPE html>
 
     ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
+        // JSON control message
         const msg = JSON.parse(ev.data);
         if (msg.type === 'ready') {
           canvas.width = msg.width || 640;
@@ -408,6 +424,8 @@ const clientHTML = `<!DOCTYPE html>
         }
         return;
       }
+
+      // Binary = JPEG frame
       const blob = new Blob([ev.data], { type: 'image/jpeg' });
       createImageBitmap(blob).then(bmp => {
         ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
@@ -423,6 +441,7 @@ const clientHTML = `<!DOCTYPE html>
       }).catch(() => {});
     };
 
+    // Input: keyboard
     function sendKey(code, down) {
       const qk = KEY_MAP[code];
       if (qk !== undefined && ws.readyState === 1) {
@@ -432,6 +451,7 @@ const clientHTML = `<!DOCTYPE html>
     document.addEventListener('keydown', (e) => { e.preventDefault(); sendKey(e.code, true); });
     document.addEventListener('keyup', (e) => { e.preventDefault(); sendKey(e.code, false); });
 
+    // Input: mouse movement (only when pointer is locked)
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement && ws.readyState === 1) {
         ws.send(JSON.stringify({type:'input',kind:'mouse',dx:e.movementX,dy:e.movementY,buttons:0}));
@@ -463,6 +483,10 @@ func clientHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(clientHTML))
 }
 
+// ---------------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------------
+
 func main() {
 	log.Printf("streaming-gateway starting (worker=%s listen=%s fps=%d)",
 		workerAddr, listenAddr, targetFPS)
@@ -470,7 +494,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthHandler)
 	mux.HandleFunc("/stream", streamHandler)
-	mux.HandleFunc("/signal", streamHandler)
+	mux.HandleFunc("/signal", streamHandler) // keep old path working
 	mux.HandleFunc("/", clientHandler)
 
 	srv := &http.Server{

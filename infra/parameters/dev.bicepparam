@@ -9,9 +9,10 @@
 
 using '../main.bicep'
 
-param environment        = 'dev'
-param location           = 'eastus'
-param prefix             = 'quake'
-param gameWorkerImageTag = 'latest'
-param quakeMap           = 'e1m1'
-param quakeSkill         = 1
+param environment              = 'dev'
+param location                 = 'eastus'
+param prefix                   = 'quake'
+param gameWorkerImageTag       = 'latest'
+param streamingGatewayImageTag = 'latest'
+param quakeMap                 = 'e1m1'
+param quakeSkill               = 1

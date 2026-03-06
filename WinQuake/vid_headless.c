@@ -12,6 +12,10 @@ Build this file when HEADLESS=1 is defined (cmake -DHEADLESS=ON).
 
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
+
+/* Mutex shared with net_frame_server.c to protect framebuffer access */
+pthread_mutex_t frame_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* -----------------------------------------------------------------------
  * Resolution (can be overridden by env var QUAKE_WIDTH / QUAKE_HEIGHT)
@@ -27,7 +31,9 @@ static byte	*vid_buffer   = NULL;
 static short	*zbuffer_mem  = NULL;
 static byte	*surfcache_mem = NULL;
 
-#define SURFCACHE_SIZE (512 * 1024)
+/* D_SurfaceCacheForRes computes the correct size at runtime.
+ * We keep this as a minimum fallback only. */
+#define SURFCACHE_SIZE_MIN (512 * 1024)
 
 /* RGBA capture buffer (exported) */
 static byte	*rgba_buffer   = NULL;
@@ -52,8 +58,11 @@ int VID_CaptureFrame (byte **rgba, int *width, int *height)
 	byte *src;
 	byte *dst;
 
+	pthread_mutex_lock(&frame_mutex);
+
 	if (!vid_buffer || !rgba_buffer)
 	{
+		pthread_mutex_unlock(&frame_mutex);
 		*rgba   = NULL;
 		*width  = 0;
 		*height = 0;
@@ -79,6 +88,7 @@ int VID_CaptureFrame (byte **rgba, int *width, int *height)
 	*width  = vid_width;
 	*height = vid_height;
 	frame_captured = 0;
+	pthread_mutex_unlock(&frame_mutex);
 	return 1;
 }
 
@@ -109,6 +119,7 @@ void VID_Init (unsigned char *palette)
 	const char *env_w, *env_h;
 	int w = DEFAULT_WIDTH;
 	int h = DEFAULT_HEIGHT;
+	int surfcache_size;
 
 	env_w = getenv("QUAKE_WIDTH");
 	env_h = getenv("QUAKE_HEIGHT");
@@ -120,9 +131,16 @@ void VID_Init (unsigned char *palette)
 	vid_width  = w;
 	vid_height = h;
 
+	{
+		int sc_size = D_SurfaceCacheForRes(w, h);
+		if (sc_size < SURFCACHE_SIZE_MIN)
+			sc_size = SURFCACHE_SIZE_MIN;
+		surfcache_size = sc_size;
+	}
+
 	vid_buffer    = (byte *)malloc(w * h);
 	zbuffer_mem   = (short *)malloc(w * h * sizeof(short));
-	surfcache_mem = (byte *)malloc(SURFCACHE_SIZE);
+	surfcache_mem = (byte *)malloc(surfcache_size);
 	rgba_buffer   = (byte *)malloc(w * h * 4);
 
 	if (!vid_buffer || !zbuffer_mem || !surfcache_mem || !rgba_buffer)
@@ -130,7 +148,7 @@ void VID_Init (unsigned char *palette)
 
 	memset(vid_buffer,    0, w * h);
 	memset(zbuffer_mem,   0, w * h * sizeof(short));
-	memset(surfcache_mem, 0, SURFCACHE_SIZE);
+	memset(surfcache_mem, 0, surfcache_size);
 	memset(rgba_buffer,   0, w * h * 4);
 
 	vid.maxwarpwidth  = vid.width    = vid.conwidth  = w;
@@ -143,7 +161,7 @@ void VID_Init (unsigned char *palette)
 	vid.rowbytes      = vid.conrowbytes = w;
 
 	d_pzbuffer = zbuffer_mem;
-	D_InitCaches(surfcache_mem, SURFCACHE_SIZE);
+	D_InitCaches(surfcache_mem, surfcache_size);
 
 	VID_SetPalette(palette);
 
@@ -166,7 +184,9 @@ void VID_Shutdown (void)
 void VID_Update (vrect_t *rects)
 {
 	/* Mark that a new frame is ready for capture. */
+	pthread_mutex_lock(&frame_mutex);
 	frame_captured = 1;
+	pthread_mutex_unlock(&frame_mutex);
 }
 
 void D_BeginDirectRect (int x, int y, byte *pbitmap, int width, int height)

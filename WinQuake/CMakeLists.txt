@@ -23,6 +23,8 @@ add_compile_options(
     -Wno-unused-result
     -fno-strict-aliasing
     -fcommon
+    -g
+    -rdynamic
 )
 
 # -------------------------------------------------------------------------
@@ -107,6 +109,7 @@ if(HEADLESS)
         snd_capture.c
         snd_dma.c
         in_inject.c
+        net_frame_server.c
         sys_container.c
         cd_null.c
     )
@@ -143,6 +146,7 @@ else()
     # Container build needs pthreads for the health endpoint thread
     find_package(Threads REQUIRED)
     target_link_libraries(${TARGET_NAME} Threads::Threads)
+    target_link_options(${TARGET_NAME} PRIVATE -rdynamic)
 endif()
 
 # -------------------------------------------------------------------------

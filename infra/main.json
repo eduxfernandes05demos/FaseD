@@ -6,7 +6,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "3662632114215336008"
+      "templateHash": "8780609775824917456"
     }
   },
   "parameters": {
@@ -43,6 +43,13 @@
       "defaultValue": "latest",
       "metadata": {
         "description": "Container image tag to deploy to the game-worker."
+      }
+    },
+    "streamingGatewayImageTag": {
+      "type": "string",
+      "defaultValue": "latest",
+      "metadata": {
+        "description": "Container image tag to deploy to the streaming-gateway."
       }
     },
     "quakeMap": {
@@ -641,10 +648,10 @@
         "logAnalytics"
       ]
     },
-    "gameWorker": {
+    "quakeStreaming": {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
-      "name": "game-worker",
+      "name": "quake-streaming",
       "properties": {
         "expressionEvaluationOptions": {
           "scope": "inner"
@@ -652,7 +659,7 @@
         "mode": "Incremental",
         "parameters": {
           "name": {
-            "value": "[format('ca-game-worker-{0}', parameters('environment'))]"
+            "value": "[format('ca-quake-streaming-{0}', parameters('environment'))]"
           },
           "location": {
             "value": "[parameters('location')]"
@@ -666,8 +673,11 @@
           "acrLoginServer": {
             "value": "[reference('acr').outputs.loginServer.value]"
           },
-          "imageTag": {
+          "gameWorkerImageTag": {
             "value": "[parameters('gameWorkerImageTag')]"
+          },
+          "streamingGatewayImageTag": {
+            "value": "[parameters('streamingGatewayImageTag')]"
           },
           "quakeMap": {
             "value": "[parameters('quakeMap')]"
@@ -695,7 +705,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "6724531042990064167"
+              "templateHash": "12729328881838503291"
             }
           },
           "parameters": {
@@ -714,7 +724,10 @@
             "acrLoginServer": {
               "type": "string"
             },
-            "imageTag": {
+            "gameWorkerImageTag": {
+              "type": "string"
+            },
+            "streamingGatewayImageTag": {
               "type": "string"
             },
             "quakeMap": {
@@ -737,8 +750,9 @@
             }
           },
           "variables": {
-            "isPlaceholder": "[equals(parameters('imageTag'), 'placeholder')]",
-            "imageName": "[if(variables('isPlaceholder'), 'mcr.microsoft.com/k8se/quickstart:latest', format('{0}/quake-worker:{1}', parameters('acrLoginServer'), parameters('imageTag')))]"
+            "isPlaceholder": "[or(equals(parameters('gameWorkerImageTag'), 'placeholder'), equals(parameters('streamingGatewayImageTag'), 'placeholder'))]",
+            "gameWorkerImage": "[if(variables('isPlaceholder'), 'mcr.microsoft.com/k8se/quickstart:latest', '/quake-worker:')]",
+            "streamingGatewayImage": "[if(variables('isPlaceholder'), 'mcr.microsoft.com/k8se/quickstart:latest', '/streaming-gateway:')]"
           },
           "resources": [
             {
@@ -753,15 +767,15 @@
               "identity": {
                 "type": "UserAssigned",
                 "userAssignedIdentities": {
-                  "[format('{0}', parameters('userAssignedIdentityId'))]": {}
+                  "": {}
                 }
               },
               "properties": {
                 "environmentId": "[parameters('containerAppsEnvId')]",
                 "configuration": {
                   "ingress": {
-                    "external": false,
-                    "targetPort": "[if(variables('isPlaceholder'), 80, 8080)]",
+                    "external": true,
+                    "targetPort": "[if(variables('isPlaceholder'), 80, 8090)]",
                     "transport": "http"
                   },
                   "registries": "[if(variables('isPlaceholder'), createArray(), createArray(createObject('server', parameters('acrLoginServer'), 'identity', parameters('userAssignedIdentityId'))))]"
@@ -769,8 +783,31 @@
                 "template": {
                   "containers": [
                     {
+                      "name": "streaming-gateway",
+                      "image": "[variables('streamingGatewayImage')]",
+                      "resources": {
+                        "cpu": "[json('0.5')]",
+                        "memory": "1Gi"
+                      },
+                      "env": [
+                        {
+                          "name": "LISTEN_ADDR",
+                          "value": ":8090"
+                        },
+                        {
+                          "name": "WORKER_ADDR",
+                          "value": "localhost:9000"
+                        },
+                        {
+                          "name": "TARGET_FPS",
+                          "value": "30"
+                        }
+                      ],
+                      "probes": "[if(variables('isPlaceholder'), createArray(), createArray(createObject('type', 'Liveness', 'httpGet', createObject('path', '/healthz', 'port', 8090, 'scheme', 'HTTP'), 'initialDelaySeconds', 30, 'periodSeconds', 10, 'failureThreshold', 3), createObject('type', 'Readiness', 'httpGet', createObject('path', '/healthz', 'port', 8090, 'scheme', 'HTTP'), 'initialDelaySeconds', 15, 'periodSeconds', 5, 'failureThreshold', 3)))]"
+                    },
+                    {
                       "name": "game-worker",
-                      "image": "[variables('imageName')]",
+                      "image": "[variables('gameWorkerImage')]",
                       "resources": {
                         "cpu": "[json('1.0')]",
                         "memory": "2Gi"
@@ -802,7 +839,7 @@
                         },
                         {
                           "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
-                          "value": "[format('InstrumentationKey={0}', parameters('appInsightsKey'))]"
+                          "value": "InstrumentationKey="
                         },
                         {
                           "name": "STORAGE_ACCOUNT_NAME",
@@ -812,8 +849,7 @@
                           "name": "AZURE_CLIENT_ID",
                           "value": "[parameters('userAssignedIdentityClientId')]"
                         }
-                      ],
-                      "probes": "[if(variables('isPlaceholder'), createArray(), createArray(createObject('type', 'Liveness', 'httpGet', createObject('path', '/healthz', 'port', 8080, 'scheme', 'HTTP'), 'initialDelaySeconds', 30, 'periodSeconds', 10, 'failureThreshold', 3), createObject('type', 'Readiness', 'httpGet', createObject('path', '/healthz', 'port', 8080, 'scheme', 'HTTP'), 'initialDelaySeconds', 15, 'periodSeconds', 5, 'failureThreshold', 3)))]"
+                      ]
                     }
                   ],
                   "scale": {
@@ -869,9 +905,9 @@
       "type": "string",
       "value": "[reference('containerAppsEnv').outputs.id.value]"
     },
-    "gameWorkerFqdn": {
+    "quakeStreamingFqdn": {
       "type": "string",
-      "value": "[reference('gameWorker').outputs.fqdn.value]"
+      "value": "[reference('quakeStreaming').outputs.fqdn.value]"
     },
     "storageAccountName": {
       "type": "string",

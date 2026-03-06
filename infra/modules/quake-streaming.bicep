@@ -1,4 +1,8 @@
-// modules/quake-streaming.bicep -- Combined streaming gateway + game worker sidecar
+// modules/quake-streaming.bicep -- Combined Quake streaming Container App (sidecar pattern)
+//
+// Deploys the streaming-gateway as the main container and game-worker as a sidecar.
+// Both containers share localhost, enabling the gateway to reach the game worker's
+// TCP frame server on localhost:9000 with zero network overhead.
 
 param name                         string
 param location                     string
@@ -14,9 +18,14 @@ param storageAccountName           string
 param userAssignedIdentityId       string
 param userAssignedIdentityClientId string
 
-var isPlaceholder = gameWorkerImageTag == 'placeholder'
-var gameWorkerImage = isPlaceholder ? 'mcr.microsoft.com/k8se/quickstart:latest' : '${acrLoginServer}/quake-worker:${gameWorkerImageTag}'
-var gatewayImage = '${acrLoginServer}/streaming-gateway:${streamingGatewayImageTag}'
+// 'placeholder' tag triggers MCR quickstart image for initial deploy
+var isPlaceholder = gameWorkerImageTag == 'placeholder' || streamingGatewayImageTag == 'placeholder'
+var gameWorkerImage = isPlaceholder
+  ? 'mcr.microsoft.com/k8se/quickstart:latest'
+  : '/quake-worker:'
+var streamingGatewayImage = isPlaceholder
+  ? 'mcr.microsoft.com/k8se/quickstart:latest'
+  : '/streaming-gateway:'
 
 resource quakeStreaming 'Microsoft.App/containerApps@2024-03-01' = {
   name:     name
@@ -28,7 +37,7 @@ resource quakeStreaming 'Microsoft.App/containerApps@2024-03-01' = {
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${userAssignedIdentityId}': {}
+      '': {}
     }
   }
   properties: {
@@ -36,7 +45,7 @@ resource quakeStreaming 'Microsoft.App/containerApps@2024-03-01' = {
     configuration: {
       ingress: {
         external:   true
-        targetPort: 8090
+        targetPort: isPlaceholder ? 80 : 8090
         transport:  'http'
       }
       registries: isPlaceholder ? [] : [
@@ -48,25 +57,29 @@ resource quakeStreaming 'Microsoft.App/containerApps@2024-03-01' = {
     }
     template: {
       containers: [
-        // Main container: streaming gateway (serves browser UI + WebSocket)
+        // Main container: streaming-gateway (receives external ingress)
         {
           name:  'streaming-gateway'
-          image: gatewayImage
+          image: streamingGatewayImage
           resources: {
             cpu:    json('0.5')
             memory: '1Gi'
           }
           env: [
             {
-              name:  'FRAME_ADDR'
-              value: 'localhost:9000'
-            }
-            {
               name:  'LISTEN_ADDR'
               value: ':8090'
             }
+            {
+              name:  'WORKER_ADDR'
+              value: 'localhost:9000'
+            }
+            {
+              name:  'TARGET_FPS'
+              value: '30'
+            }
           ]
-          probes: [
+          probes: isPlaceholder ? [] : [
             {
               type: 'Liveness'
               httpGet: {
@@ -74,7 +87,7 @@ resource quakeStreaming 'Microsoft.App/containerApps@2024-03-01' = {
                 port:   8090
                 scheme: 'HTTP'
               }
-              initialDelaySeconds: 10
+              initialDelaySeconds: 30
               periodSeconds:       10
               failureThreshold:    3
             }
@@ -85,16 +98,16 @@ resource quakeStreaming 'Microsoft.App/containerApps@2024-03-01' = {
                 port:   8090
                 scheme: 'HTTP'
               }
-              initialDelaySeconds: 5
+              initialDelaySeconds: 15
               periodSeconds:       5
               failureThreshold:    3
             }
           ]
         }
-        // Sidecar: game worker (headless Quake engine + frame server on localhost:9000)
+        // Sidecar container: game-worker (TCP frame server on localhost:9000)
         {
           name:  'game-worker'
-          image: isPlaceholder ? 'mcr.microsoft.com/k8se/quickstart:latest' : gameWorkerImage
+          image: gameWorkerImage
           resources: {
             cpu:    json('1.0')
             memory: '2Gi'
@@ -126,7 +139,7 @@ resource quakeStreaming 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name:  'APPLICATIONINSIGHTS_CONNECTION_STRING'
-              value: 'InstrumentationKey=${appInsightsKey}'
+              value: 'InstrumentationKey='
             }
             {
               name:  'STORAGE_ACCOUNT_NAME'
@@ -140,7 +153,7 @@ resource quakeStreaming 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       scale: {
-        minReplicas: 1
+        minReplicas: 0
         maxReplicas: environment == 'prod' ? 10 : 2
         rules: [
           {

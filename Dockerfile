@@ -45,6 +45,8 @@ USER quake
 
 # Health endpoint
 EXPOSE 8080
+# Frame server for streaming gateway IPC
+EXPOSE 9000
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -sf http://localhost:8080/healthz || exit 1

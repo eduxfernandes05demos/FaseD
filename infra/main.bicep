@@ -184,8 +184,8 @@ module quakeStreaming 'modules/quake-streaming.bicep' = {
 // Outputs
 // ---------------------------------------------------------------------------
 
-output acrLoginServer     string = acr.outputs.loginServer
-output containerAppsEnvId string = containerAppsEnv.outputs.id
+output acrLoginServer        string = acr.outputs.loginServer
+output containerAppsEnvId    string = containerAppsEnv.outputs.id
 output quakeStreamingFqdn    string = quakeStreaming.outputs.fqdn
-output storageAccountName string = storage.outputs.name
-output keyVaultUri        string = keyVault.outputs.uri
+output storageAccountName    string = storage.outputs.name
+output keyVaultUri           string = keyVault.outputs.uri
