@@ -10,6 +10,7 @@ build/
 *.o
 *.exe
 WinQuake/build/
+/artifacts/
 
 # Quake game data (large binary files, not for repo)
 id1/

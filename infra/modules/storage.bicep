@@ -18,20 +18,25 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   properties: {
     accessTier:             'Hot'
     allowBlobPublicAccess:  false
+    allowSharedKeyAccess:   false   // Managed identity only — no storage keys
     minimumTlsVersion:      'TLS1_2'
     supportsHttpsTrafficOnly: true
   }
 }
 
-// Azure Files share for game data (id1/ directory)
-resource fileShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-01-01' = {
-  name: '${storage.name}/default/gamedata'
+// Blob container for game data
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-01-01' = {
+  parent: storage
+  name: 'default'
+}
+
+resource gameDataContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = {
+  parent: blobService
+  name: 'gamedata'
   properties: {
-    shareQuota:      5   // GiB
-    enabledProtocols: 'SMB'
+    publicAccess: 'None'
   }
 }
 
-output name             string = storage.name
-output id               string = storage.id
-output primaryFileEndpoint string = storage.properties.primaryEndpoints.file
+output name string = storage.name
+output id   string = storage.id

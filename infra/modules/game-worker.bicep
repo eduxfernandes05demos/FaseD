@@ -1,16 +1,21 @@
 // modules/game-worker.bicep -- Quake game-worker Container App
 
-param name               string
-param location           string
-param environment        string
-param containerAppsEnvId string
-param acrLoginServer     string
-param imageTag           string
-param quakeMap           string
-param quakeSkill         string
-param appInsightsKey     string
+param name                         string
+param location                     string
+param environment                  string
+param containerAppsEnvId           string
+param acrLoginServer               string
+param imageTag                     string
+param quakeMap                     string
+param quakeSkill                   string
+param appInsightsKey               string
+param storageAccountName           string
+param userAssignedIdentityId       string
+param userAssignedIdentityClientId string
 
-var imageName = '${acrLoginServer}/quake-worker:${imageTag}'
+// 'placeholder' tag triggers MCR quickstart image for initial deploy; any other tag uses ACR
+var isPlaceholder = imageTag == 'placeholder'
+var imageName = isPlaceholder ? 'mcr.microsoft.com/k8se/quickstart:latest' : '${acrLoginServer}/quake-worker:${imageTag}'
 
 resource gameWorker 'Microsoft.App/containerApps@2024-03-01' = {
   name:     name
@@ -20,21 +25,23 @@ resource gameWorker 'Microsoft.App/containerApps@2024-03-01' = {
     application: 'quake-cloud'
   }
   identity: {
-    type: 'SystemAssigned'
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${userAssignedIdentityId}': {}
+    }
   }
   properties: {
     environmentId: containerAppsEnvId
     configuration: {
       ingress: {
-        // Internal only – exposed to the streaming gateway via ACA internal networking
         external:   false
-        targetPort: 8080
+        targetPort: isPlaceholder ? 80 : 8080
         transport:  'http'
       }
-      registries: [
+      registries: isPlaceholder ? [] : [
         {
           server:   acrLoginServer
-          identity: 'system'
+          identity: userAssignedIdentityId
         }
       ]
     }
@@ -44,7 +51,7 @@ resource gameWorker 'Microsoft.App/containerApps@2024-03-01' = {
           name:  'game-worker'
           image: imageName
           resources: {
-            cpu:    '1.0'
+            cpu:    json('1.0')
             memory: '2Gi'
           }
           env: [
@@ -76,8 +83,16 @@ resource gameWorker 'Microsoft.App/containerApps@2024-03-01' = {
               name:  'APPLICATIONINSIGHTS_CONNECTION_STRING'
               value: 'InstrumentationKey=${appInsightsKey}'
             }
+            {
+              name:  'STORAGE_ACCOUNT_NAME'
+              value: storageAccountName
+            }
+            {
+              name:  'AZURE_CLIENT_ID'
+              value: userAssignedIdentityClientId
+            }
           ]
-          probes: [
+          probes: isPlaceholder ? [] : [
             {
               type: 'Liveness'
               httpGet: {
@@ -122,4 +137,5 @@ resource gameWorker 'Microsoft.App/containerApps@2024-03-01' = {
 }
 
 output fqdn string = gameWorker.properties.configuration.ingress.fqdn
+output name string = gameWorker.name
 output id   string = gameWorker.id

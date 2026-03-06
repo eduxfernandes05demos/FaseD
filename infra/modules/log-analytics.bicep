@@ -22,5 +22,9 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
-output workspaceId      string = workspace.id
-output primarySharedKey string = workspace.listKeys().primarySharedKey
+output workspaceId       string = workspace.id
+output workspaceCustomerId string = workspace.properties.customerId
+
+@description('Log Analytics primary shared key. Marked secure to satisfy linter.')
+@secure()
+output primarySharedKey  string = workspace.listKeys().primarySharedKey

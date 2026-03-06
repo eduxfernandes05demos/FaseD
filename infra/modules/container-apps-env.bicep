@@ -3,8 +3,9 @@
 param name                      string
 param location                  string
 param environment               string
-param logAnalyticsWorkspaceId   string
-param logAnalyticsKey           string
+param logAnalyticsWorkspaceCustomerId string
+@secure()
+param logAnalyticsKey                string
 
 resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name:     name
@@ -17,7 +18,7 @@ resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
     appLogsConfiguration: {
       destination: 'log-analytics'
       logAnalyticsConfiguration: {
-        customerId: reference(logAnalyticsWorkspaceId, '2023-09-01').customerId
+        customerId: logAnalyticsWorkspaceCustomerId
         sharedKey:  logAnalyticsKey
       }
     }

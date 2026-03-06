@@ -90,11 +90,13 @@ module keyVault 'modules/key-vault.bicep' = {
 module storage 'modules/storage.bicep' = {
   name: 'storage'
   params: {
-    name:        replace('st${prefix}${environment}', '-', '')
+    name:        storageAccountName
     location:    location
     environment: environment
   }
 }
+
+var storageAccountName = replace('st${prefix}${environment}', '-', '')
 
 module containerAppsEnv 'modules/container-apps-env.bicep' = {
   name: 'container-apps-env'
@@ -102,23 +104,75 @@ module containerAppsEnv 'modules/container-apps-env.bicep' = {
     name:                   'cae-${resourceSuffix}'
     location:               location
     environment:            environment
-    logAnalyticsWorkspaceId: logAnalytics.outputs.workspaceId
-    logAnalyticsKey:        logAnalytics.outputs.primarySharedKey
+    logAnalyticsWorkspaceCustomerId: logAnalytics.outputs.workspaceCustomerId
+    logAnalyticsKey:                 logAnalytics.outputs.primarySharedKey
+  }
+}
+
+// ---------------------------------------------------------------------------
+// User-Assigned Managed Identity & RBAC
+// ---------------------------------------------------------------------------
+
+resource gameWorkerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name:     'id-game-worker-${resourceSuffix}'
+  location: location
+  tags: {
+    environment: environment
+    application: 'quake-cloud'
+  }
+}
+
+// Existing references for role-assignment scoping
+resource storageAccountRef 'Microsoft.Storage/storageAccounts@2023-01-01' existing = {
+  name: storageAccountName
+  dependsOn: [storage]
+}
+
+resource acrRef 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
+  name: acrName
+  dependsOn: [acr]
+}
+
+// Storage Blob Data Reader – lets the init container download game data
+var storageBlobDataReaderRoleId = '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
+resource blobReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name:  guid(storageAccountRef.id, gameWorkerIdentity.id, storageBlobDataReaderRoleId)
+  scope: storageAccountRef
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataReaderRoleId)
+    principalId:      gameWorkerIdentity.properties.principalId
+    principalType:    'ServicePrincipal'
+  }
+}
+
+// AcrPull – lets the container app pull images from ACR
+var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name:  guid(acrRef.id, gameWorkerIdentity.id, acrPullRoleId)
+  scope: acrRef
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
+    principalId:      gameWorkerIdentity.properties.principalId
+    principalType:    'ServicePrincipal'
   }
 }
 
 module gameWorker 'modules/game-worker.bicep' = {
   name: 'game-worker'
+  dependsOn: [blobReaderRole, acrPullRole]
   params: {
-    name:              'ca-game-worker-${environment}'
-    location:          location
-    environment:       environment
-    containerAppsEnvId: containerAppsEnv.outputs.id
-    acrLoginServer:    acr.outputs.loginServer
-    imageTag:          gameWorkerImageTag
-    quakeMap:          quakeMap
-    quakeSkill:        string(quakeSkill)
-    appInsightsKey:    appInsights.outputs.instrumentationKey
+    name:                         'ca-game-worker-${environment}'
+    location:                     location
+    environment:                  environment
+    containerAppsEnvId:           containerAppsEnv.outputs.id
+    acrLoginServer:               acr.outputs.loginServer
+    imageTag:                     gameWorkerImageTag
+    quakeMap:                     quakeMap
+    quakeSkill:                   string(quakeSkill)
+    appInsightsKey:               appInsights.outputs.instrumentationKey
+    storageAccountName:           storageAccountName
+    userAssignedIdentityId:       gameWorkerIdentity.id
+    userAssignedIdentityClientId: gameWorkerIdentity.properties.clientId
   }
 }
 

@@ -30,12 +30,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Non-root user for security
-RUN useradd -r -u 1000 -s /usr/sbin/nologin quake
+# Non-root user for security (use -o to allow reuse if UID 1000 exists)
+RUN useradd -r -u 1000 -o -s /usr/sbin/nologin quake
 
 COPY --from=builder /src/build/quake-worker /usr/local/bin/quake-worker
+COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Game data is provided at runtime via Azure Files volume mount
+# Game data is downloaded at startup via managed identity
 RUN mkdir -p /game && chown quake:quake /game
 
 USER quake
@@ -54,4 +56,4 @@ ENV QUAKE_BASEDIR=/game \
     QUAKE_WIDTH=640 \
     QUAKE_HEIGHT=480
 
-ENTRYPOINT ["quake-worker"]
+ENTRYPOINT ["entrypoint.sh"]
